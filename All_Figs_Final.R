@@ -1,5 +1,5 @@
 lapply(c("ggplot2","ggthemes","tidyverse","dplyr","lme4"),require,character.only=T) #load packages
-setwd("") #set working directory
+setwd("XXX") #set working directory - replace XXX w/ local directory where *.csv files are
 mAll=read.csv("glm_VE_total2.csv") #load VE, nAbs data
 m1=read.csv("Nabs ratios Delta WT.csv") #load VE, nAbs data
 
