@@ -1,5 +1,5 @@
 lapply(c("ggplot2","ggthemes","tidyverse","dplyr","lme4"),require,character.only=T) #load packages
-setwd("XXX") #set working directory - replace XXX w/ local directory where *.csv files are
+setwd("c:/marm/research/covid-19/booster/")
 mAll=read.csv("glm_VE_total2.csv") #load VE, nAbs data
 m1=read.csv("Nabs ratios Delta WT.csv") #load VE, nAbs data
 
@@ -336,12 +336,12 @@ pars1E=data.frame(f_b=seq(0,.75,by=0.01),Rtb=Rt(cbind(parsE, f_b=seq(0,.75,by=0.
 
 #Scenario E - 75% vacc., R0 3.7, Prev inf = 28%
 parsF=parsA; parsF[,c("R0","f_n","f_v","f_pu","f_pv")]=c(3.7,0.4,0.6,0.01,0.002)
-pars1F=data.frame(f_b=seq(0,0.6,by=0.01),Rtb=Rt(cbind(parsF, f_b=seq(0,.6,by=0.01))),Scenario="R0=3.7;  60% vacc., <1% prev. inf.")
+pars1F=data.frame(f_b=seq(0,0.6,by=0.01),Rtb=Rt(cbind(parsF, f_b=seq(0,.6,by=0.01))),Scenario="R0=3.7;  60% vacc., 0.5% prev. inf.")
 
 #Calculating CIs for Rt for Fig 2
 nd1=10000
 draws=data.frame() #generate 10,000 draws from each estimate on logit scale, then transform
-draws=cbind("VE_ii"=unlist(CI_infy),
+draws=data.frame("VE_ii"=unlist(CI_infy),
             "VE_ti"=unlist(CI_transy),
             "VE_iv"=unlist(CI_inf_vaxy),
             "VE_tv"=unlist(CI_trans_vaxy),
@@ -350,6 +350,8 @@ draws=cbind("VE_ii"=unlist(CI_infy),
             "VE_ib"=(plogis(rnorm(nd1,unlist(p_b[1]),unlist(p_b[2])))),
             "VE_tb"=(plogis(rnorm(nd1,unlist(p_tb[1]),unlist(p_tb[2])))))
 
+quantile(draws$VE_ib,probs = c(0.025,0.5,0.975)) #waning VE boosted infection
+quantile(draws$VE_tb,probs = c(0.025,0.5,0.975)) #waning VE boosted transmission
 
 for (i in 1:101) { #calculate CIs for each scenario
   if (i<58) { #2 scenarios that have max boosters = 56%
@@ -389,13 +391,13 @@ ggplot(data=Rt_dat,aes(x=f_b,y=Rtb),)+
   geom_hline(yintercept=1, linetype="longdash")+
   theme(panel.border = element_blank(), panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+
-  xlab("Fraction of population receiving 3rd dose")+
-  ylab("Effective Reproductive Number (Rt)")+
+  xlab("Fraction of population receiving third dose")+
+  ylab(expression(Effective~Reproductive~Number~(R[t])))+
   labs(fill="Scenario")+scale_fill_manual(values=c("red", "grey","blue", "yellow3","green"))+
   scale_color_manual(values=c("red", "grey","blue","yellow3" ,"green"))+
   theme(strip.text.x = element_blank(),strip.background = element_rect(colour="white", fill="white"),
         legend.position=c(.8,.85) )+
-  geom_text(data=pars1D,aes(x=f_b,y=Rtb,label="R0 = 7; 84% vacc., no 3rd doses"),size=7,hjust=-0.05)+
+  geom_text(data=pars1D,aes(x=f_b,y=Rtb,label="R0 = 7; 84% vacc., no third doses"),size=7,hjust=-0.05)+
   theme(axis.title=element_text(size=25),#legend.position = c(.1, .80),
         axis.text=element_text(size=25),legend.text=element_text(size=20),
         legend.title=element_text(size=20))
