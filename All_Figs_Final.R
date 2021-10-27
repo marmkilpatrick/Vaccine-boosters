@@ -1,6 +1,6 @@
 lapply(c("ggplot2","ggthemes","tidyverse","dplyr","lme4"),require,character.only=T) #load packages
-setwd("XXX") #set working directory where data files reside
-mAll=read.csv("glm_VE_total2.csv") #load VE, nAbs data
+setwd("c:/marm/research/covid-19/booster/")
+mAll=read.csv("VE_nAbs_data.csv") #load VE, nAbs data
 m1=read.csv("Nabs ratios Delta WT.csv") #load VE, nAbs data
 
 #Analysis of nAbs ratios relative to Delta
@@ -22,6 +22,9 @@ boost_ratio/wane_ratio
 
 #Table S3: Fitted model for protection vs nAbs
 f2=glm(VE~log2(Nabs_Ratio)*Groups,data=mAll[mAll$Vacc_avg==1,],family=binomial,weights=N_eff);summary(f2)
+
+#VE hybrid immunity Delta (not in paper)
+predict(f2, newdata=data.frame(Nabs_Ratio=6300/800*mAll$Nabs_Ratio[mAll$Vaccine=="Pfizer"&mAll$Study=="Pouwels (delta)"],Groups="Delta - infection"), type="response",se.fit=T)
 
 #Calculating predicted VE values all infections Pfizer w/ waning, boosting & adding to mAll
 p_w=predict(f2, newdata=data.frame(Nabs_Ratio=wane_ratio*mAll$Nabs_Ratio[mAll$Vaccine=="Pfizer"&mAll$Study=="Pouwels (delta)"],Groups="Delta - infection"), type="link",se.fit=T)
@@ -122,6 +125,7 @@ ggplot()+
         axis.text=element_text(size=15),
         legend.title=element_blank(),
         legend.position = "none")
+
 
 ### Calculate VE for acquired immunity from prev infection using daily US deaths 
 #Fit model for waning rate of nAbs over time
@@ -463,3 +467,5 @@ ggplot(data=daily_rate_ratio,aes(x=date,y=age_adj_irr))+
         legend.position=c(.8,.85),axis.title.x=element_blank() )+
   theme(panel.border = element_blank(), panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))
+
+
