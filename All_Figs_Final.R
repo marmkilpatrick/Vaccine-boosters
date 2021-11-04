@@ -1,5 +1,5 @@
 lapply(c("ggplot2","ggthemes","tidyverse","dplyr","lme4","brms","rstan"),require,character.only=T) #load packages
-setwd("c:/marm/research/covid-19/booster/")
+setwd("XXX")
 mAll=read.csv("VE_nAbs_data.csv") #load VE, nAbs data
 m1=read.csv("Nabs ratios Delta WT.csv") #load VE, nAbs data
 
