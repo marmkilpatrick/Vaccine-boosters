@@ -4,3 +4,4 @@ Code associated with paper: Third vaccine doses could have indirectly averted >1
 3rd version of paper and code uploaded 11/29/21
 4th version of paper and code uploaded 11/13/24
 
+Contact Marm Kilpatrick, akilpatr@ucsc.edu with any questions.
