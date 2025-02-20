@@ -1,0 +1,16 @@
+Study,Variant,Vaccine,NATR_vac,NATR_vac_istatus,endpoint,VE,upper,lower
+Goldberg,Alpha,Pfizer,2.3723404,1,death,0.96,0.969,0.949
+Haas,Alpha,Pfizer,2.3723404,1,death,0.967,0.973,0.96
+Andrews,Alpha,Pfizer,2.3723404,0.1241186,death,0.966,0.965,0.944
+Andrews,Delta,Pfizer,2.3723404,1,death,0.956,0.966,0.944
+Andrews,Delta,Pfizer,2.3723404,1,death,0.982,0.992,0.959
+Andrews,Delta,Pfizer,2.3723404,0.1241186,death,0.904,0.938,0.851
+Andrews,Delta,Astrazeneca,0.5423729,1,death,0.932,0.945,0.917
+Andrews,Delta,Astrazeneca,0.5423729,1,death,0.941,0.958,0.918
+Glatman-Freedman,Alpha,Pfizer,2.3723404,1,death,0.986,0.993,0.97
+Khanam,Delta,Astrazeneca,0.5423729,1,death,0.86,0.98,-0.23
+Yan,BA.2,Pfizer,2.3723404,1,death,0.898,0.936,0.837
+Yan,BA.2,Pfizer,2.3723404,0.1241186,death,0.738,0.844,0.559
+Yan,BA.2,Sinovac,0.1686011,1,death,0.811,0.842,0.774
+Yan,BA.2,Pfizer,2.3723404,7.629827,death,0.974,0.99,0.93
+Sukik,Delta,Pfizer,2.3723404,7.629827,death,1,1,-0.587
