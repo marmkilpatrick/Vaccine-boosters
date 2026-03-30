@@ -1,6 +1,6 @@
 # Vaccine-boosters
 Code associated with paper: 
-Deaths averted by vaccination due to reduced transmission can exceed those from direct protection of vaccinated individuals for SARS-CoV-2
+Deaths averted by vaccination due to reduced transmission can exceed those from direct protection of vaccinated individuals
 Previous title of paper on medRxiv:
 Third vaccine doses could have indirectly averted >100,000 deaths in the USA by reducing transmission of the SARS-CoV-2 Delta variant
 2nd version of paper and code uploaded 11/3/21
