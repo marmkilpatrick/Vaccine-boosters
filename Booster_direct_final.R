@@ -1,20 +1,22 @@
 lapply(c("emdbook","ggblend","ggpubr","ggsci","cowplot","zoo","ggplot2","ggthemes","tidyverse","brglm2","dplyr","lme4","brms","rstan","mgcv","mvtnorm","scales","gtools","bbmle","ggnewscale","estimateR","beepr","egg"),require,character.only=T) #load packages
 #setwd()
 
-
 mAll=read.csv("VE_nAbs_data7.csv") #load VE, nAbs data
 mAll=mAll[mAll$endpoint!="Symptomatic disease",] #Remove Symptomatic disease data
 mAll=mAll[mAll$Variant!="BA.2",] #Remove BA.2 data
 
-mdeath=read.csv("VE_death_data.csv") #load VE, nAbs data
+mdeath=read.csv("VE_death_data.csv") #load VE, nAbs data for death
 
 mAll2=rbind(mAll,mdeath) #merging VE data
 
+mAll2$endpoint[mAll2$endpoint=="death"]="Death"
+
 #Begin original fold change figure: Load data
-FC=read.csv("fold_figure_all.csv") #load VE, nAbs data
+FC=read.csv("fold_figure_all.csv") #load variant nAbs fold-reduction data
 FC$Variant[FC$Variant=="Omicron (initial)"]="BA.1 Dec. 2021" 
 
 FC2=aggregate(fold_red~Variant+Study,data=FC,FUN=mean) #average across estimates w/in a study
+
 #remove studies w/ <3 estimates
 x=as.data.frame.matrix(table(FC2$Study,FC2$Variant));
 x$`BA.1 Dec. 2021`=3*x$`BA.1 Dec. 2021`
@@ -80,8 +82,9 @@ mean_varO$upper=exp(mean_varO$logupper_bound)
 mean_varO$lower=exp(mean_varO$loglower_bound)
 
 FC3=mean_varO[c("Study","Variant","fold_red","upper","lower","figure")]
-FC_fig=(rbind(FC2,FC3))
+FC_fig=(rbind(FC2,FC3)) #merge for figure
 
+#relevel
 FC_fig$Variant=factor(FC_fig$Variant,levels=c("Alpha","Gamma","Delta","Beta","BA.1","BA.2","BA.4/5","BA.1 Dec. 2021"));FC_fig$Study=as.factor(FC_fig$Study)
 
 #standard errors and CVs
@@ -261,24 +264,60 @@ qdraws=runif(nds)
 #create dataframes for model outputs
 y=matrix(data=NA,nrow =nds, ncol = 21 )
 y0=matrix(data=NA,nrow =nds, ncol = 21 )
-z=data.frame(endpoint=NA,NATR_tot=rep(0.0078125*2^((0:20)/2),3),mean=NA)
-CI=data.frame(endpoint=NA,NATR_tot=rep(0.0078125*2^((0:20)/2),3),mean=NA)
+z=data.frame(endpoint=NA,NATR_tot=rep(0.0078125*2^((0:20)/2),4),mean=NA)
+CI=data.frame(endpoint=NA,NATR_tot=rep(0.0078125*2^((0:20)/2),4),mean=NA)
 VE_l=matrix(data=NA,nrow =nds, ncol = 21 )
 
 #baseline prev from original UK report Andrews et al.
 base_prev=115/10000
 
-#Calculate coefficient values for model for each endpoint, fitted line/CIs
-mAll=mAll2[mAll2$endpoint!="death",]
+#Calculate coefficient values and stats for model for each endpoint, fitted line/CIs
+mAll=mAll2
 
 ep=unique(mAll$endpoint)
 
-cvalues=data.frame(endpoint=c("Infectiousness","Susceptibility"),c0=NA,c1=NA,sigma11=NA,sigma12=NA,sigma21=NA,sigma22=NA)
+cvalues=data.frame(endpoint=c("Infectiousness","Susceptibility","Death"),c0=NA,c1=NA,sigma11=NA,sigma12=NA,sigma21=NA,sigma22=NA,
+                   LL_full=NA,LL_null=NA,R2_McFadden=NA,R2_CoxSnell=NA,R2_Nagelkerke=NA,
+                   est_c0=NA,se_c0=NA,z_c0=NA,p_c0=NA,
+                   est_c1=NA,se_c1=NA,z_c1=NA,p_c1=NA)
 
 for (i in 1:length(ep)) {
   mm1=mAll[mAll$endpoint==ep[i],]
   fp2 <- mle2(lkf,start=list(c0=0,c1=0),
               fixed=list(),control=list(trace=3))
+  sum_fp2 <- summary(fp2)
+  coef_tab <- sum_fp2@coef
+  
+  cvalues$est_c0[i] <- coef_tab["c0","Estimate"]
+  cvalues$se_c0[i]  <- coef_tab["c0","Std. Error"]
+  cvalues$z_c0[i]   <- coef_tab["c0","z value"]
+  cvalues$p_c0[i]   <- coef_tab["c0","Pr(z)"]
+  
+  cvalues$est_c1[i] <- coef_tab["c1","Estimate"]
+  cvalues$se_c1[i]  <- coef_tab["c1","Std. Error"]
+  cvalues$z_c1[i]   <- coef_tab["c1","z value"]
+  cvalues$p_c1[i]   <- coef_tab["c1","Pr(z)"]
+  
+  # NULL MODEL (intercept only)
+  fp2_null <- mle2(lkf,
+                   start = list(c0 = 0),
+                   fixed = list(c1 = 0),
+                   control = list(trace = 0))
+  
+  # Log-likelihoods
+  LL_full <- as.numeric(logLik(fp2))
+  LL_null <- as.numeric(logLik(fp2_null))
+  n_eff <- sum(mm1$N_v+mm1$N_c,na.rm = TRUE)
+  
+  cvalues$LL_full[i]=LL_full
+  cvalues$LL_null[i]=LL_null
+  
+  print(LL_full);print(LL_null)
+  
+  # Pseudo R2
+  R2_McFadden   <- 1 - (LL_full / LL_null)
+  R2_CoxSnell   <- 1 - exp((2/n_eff) * (LL_null - LL_full))
+  R2_Nagelkerke <- R2_CoxSnell / (1 - exp((2/n_eff) * LL_null))
   
   h1=fp2@details$hessian
   mean=c(coef(fp2)[1],coef(fp2)[2])
@@ -292,11 +331,18 @@ for (i in 1:length(ep)) {
   cvalues$sigma12[i]=sigma[1,2]
   cvalues$sigma21[i]=sigma[2,1]
   cvalues$sigma22[i]=sigma[2,2]
-  if(i<2)
+  cvalues$R2_McFadden[i]   <- R2_McFadden
+  cvalues$R2_CoxSnell[i]   <- R2_CoxSnell
+  cvalues$R2_Nagelkerke[i] <- R2_Nagelkerke
+  
+  if(i==1)
   {susc_sum=summary(fp2)}  
-  else
+  else if(i==2)
   {infect_sum=summary(fp2);
-  y0=y}
+  y_s=y}
+  else if(i==3)
+  {death_sum=summary(fp2);
+  y_i=y}
   
   for (j in 0:20) {
     y[,j+1]=1-(1/(1+exp(-(x[,1]+x[,2]*log2(0.0078125*2^(j/2))))))
@@ -319,54 +365,35 @@ for (i in 1:length(ep)) {
   }
 }
 
-cvalues_death=data.frame(endpoint=c("Death"),c0=NA,c1=NA,sigma11=NA,sigma12=NA,sigma21=NA,sigma22=NA)
-
-mm1=mAll2[mAll2$endpoint=="death",]
-fp2 <- mle2(lkf,start=list(c0=0,c1=0),
-            fixed=list(),control=list(trace=3))
-
-h1=fp2@details$hessian
-mean=c(coef(fp2)[1],coef(fp2)[2])
-sigma=solve(h1)
-
-cvalues_death$c0=coef(fp2)[1]
-cvalues_death$c1=coef(fp2)[2]
-cvalues_death$sigma11=sigma[1,1]
-cvalues_death$sigma12=sigma[1,2]
-cvalues_death$sigma21=sigma[2,1]
-cvalues_death$sigma22=sigma[2,2]
-
-
 #Create cvalues.csv for use in VE_over_time R script
 write.csv(cvalues,file = "cvalues.csv")
-write.csv(cvalues_death,file = "cvalues_death.csv")
 
 #Combine draws for VE for transmission calc. VEt = (1-VEs)*(1-VEi)
-yt=1-(1-y) * (1-y0)
+yt=1-(1-y_s) * (1-y_i)
 
 #Modify dataframe with fitted line and PIs
-z$endpoint[43:63]="Transmission"
+z$endpoint[64:84]="Transmission"
 z$lower[z$endpoint=="Transmission"]=NA
 z$upper[z$endpoint=="Transmission"]=NA
 
 #Modify dataframe with CIs
-CI$endpoint[43:63]="Transmission"
+CI$endpoint[64:84]="Transmission"
 CI$lower[CI$endpoint=="Transmission"]=NA
 CI$upper[CI$endpoint=="Transmission"]=NA
 
 #Calculate fitted line and CIs for VE for transmission
 for (i in 1:ncol(yt)) {
-  z$mean[42+i]=quantile(yt[,i],probs=0.5)
-  CI$lower[42+i]=quantile(yt[,i],probs=0.025)
-  CI$upper[42+i]=quantile(yt[,i],probs=0.975)
+  z$mean[63+i]=quantile(yt[,i],probs=0.5)
+  CI$lower[63+i]=quantile(yt[,i],probs=0.025)
+  CI$upper[63+i]=quantile(yt[,i],probs=0.975)
 }
 
 #Remove unused rows for plotting
-z=z[-(43:50), ]
-CI=CI[-(43:50), ]
+#z=z[-(43:50), ]
+#CI=CI[-(43:50), ]
 
 #Label for fig 1
-tlab2=data.frame(endpoint=c("Susceptibility","Infectiousness","Transmission"),text1=c("A: Susceptibility","B: Infectiousness","C: Transmission"),NATR_tot=c(0.13,0.13,0.13),VE=c(0.93,0.9,0.95))
+tlab2=data.frame(endpoint=c("Susceptibility","Infectiousness","Transmission","Death"),text1=c("A: Susceptibility","B: Infectiousness","C: Transmission","D: Death"),NATR_tot=c(0.130,0.130,0.130,0.130),VE=c(0.94,0.92,0.95,0.99))
 
 #jitter x-values
 mAll$NATR_tot_jit=mAll$NATR_tot+rnorm(nrow(mAll),0,0.02) #jitter xvals
@@ -380,13 +407,14 @@ mAll$data="data"
 mAll_fig2=mAll
 mAll_fig2$lower[mAll_fig2$lower<=-0.1&mAll_fig2$data=="data"]=-0.1
 mAll_fig2=mAll_fig2[mAll_fig2$VE>=0.1&mAll_fig2$data=="data",]
+mAll_fig2$VE_low_SE[mAll_fig2$endpoint=="Death"&mAll_fig2$VE_low_SE<=0.75]=0.85
 
 #Data into single dataframe for plot
-fig2=bind_rows(mAll_fig2,CI,z)#,pred_delta)
+fig2=bind_rows(mAll_fig2[mAll_fig2$NATR_tot_jit>=0.125,],CI[CI$NATR_tot>=0.125,],z[z$NATR_tot >=0.125,])#,pred_delta)
 
 #Reorder for plotting
-fig2$endpoint=factor(fig2$endpoint,levels = c("Susceptibility", "Infectiousness","Transmission"))
-tlab2$endpoint=factor(tlab2$endpoint,levels = c("Susceptibility","Infectiousness","Transmission"))
+fig2$endpoint=factor(fig2$endpoint,levels = c("Susceptibility", "Infectiousness","Transmission","Death"))
+tlab2$endpoint=factor(tlab2$endpoint,levels = c("Susceptibility","Infectiousness","Transmission","Death"))
 
 #Add "sera" to Convalescent
 fig2$code[fig2$code=="Convalescent sera"]="Convalescent"
@@ -404,18 +432,18 @@ ggplot(data=fig2)+
                                                                                                                        prefix = "", suffix = "",
                                                                                                                        big.mark = " ", decimal.mark = "."))+
   scale_y_continuous(expand = c(0, 0))+
-  scale_shape_manual(values = c(18,19,17,6,15))+ 
+  scale_shape_manual(values = c(18,19,17,6,5,15))+ 
   coord_cartesian(ylim = c(NA, 1),xlim = c(NA,NA)) +
   #scale_color_manual(values=c(  "#00BFC4", "#C77CFF","#F8766D"))+
   xlab(expression("Neutralizing antibody titer ratio ("*NATR[tot]*")"))+
-  ylab("VE for susceptibility or infectiousness")+
+  ylab("Vaccine effectiveness or reduction due to immunity")+
   theme(axis.title=element_text(size=24),#legend.position = "top",#legend.position = c(.1, .80),
         axis.text=element_text(size=18),legend.text=element_text(size=20),
         legend.title=element_text(size=20))+
   #geom_text(data=tlab,aes(x=Nabs_Ratio,y=VE,label=text1))+
   geom_text(data=tlab2,aes(x=NATR_tot,y=VE,label=text1),size=6.5,hjust=0)+
   labs(col="Variant", shape="Immunity")+
-  facet_wrap(.~endpoint,nrow=3, scales="free_y")+theme(strip.text.x = element_blank())
+  facet_wrap(.~endpoint,nrow=4, scales="free_y")+theme(strip.text.x = element_blank())
 
 #Supplemental Figure 1
 Susc_Symp_Rat=data.frame(NATR_tot=seq(0.125,4,by=0.0005))
@@ -650,8 +678,8 @@ p1=rbind(p1,q1,r1,s1)
 
 #Panel labels
 tlab3=data.frame(response=c("absolute_nAbs","relative_nAbs","VE_s","VE_i"),
-                 text1=c("A: Neutralizing antibody titer relative to convalescent sera with WT virus","B: Neutralizing antibody titer relative to peak from panel A",
-                         "C: VE for susceptibility", "D: VE for infectiousness"),Day=c(50),nAbs=c(1.93,1.005,.90,0.78))
+                 text1=c("A","B",
+                         "C", "D"),Day=c(25),nAbs=c(1.93,1.005,.90,0.78))
 
 #create dataframe for predicted delta boosted 
 pred_delta_boost=data.frame(Variant="Delta",vaccine=rep(c("Pfizer","Moderna"),2),
@@ -838,6 +866,7 @@ tlab3$response=factor(tlab3$response,levels = c("absolute_nAbs","relative_nAbs",
 bp$response=factor(bp$response,levels = c("absolute_nAbs","relative_nAbs","VE_s","VE_i"))
 bp2$response=factor(bp2$response,levels = c("absolute_nAbs","relative_nAbs","VE_s","VE_i"))
 
+#Change vaccine names
 n1$Vaccine[n1$Vaccine=="Pfizer"]="BNT162b2"
 n1$Vaccine[n1$Vaccine=="Moderna"]="mRNA-1273"
 p1$Vaccine[p1$Vaccine=="Pfizer"]="BNT162b2"
@@ -845,8 +874,30 @@ p1$Vaccine[p1$Vaccine=="Moderna"]="mRNA-1273"
 
 mylabeller=as_labeller(c(absolute_nAbs="Antibody~titer",
                          relative_nAbs="Relative~antibody~titer",
-                         VE_s="VE[S]",
-                         VE_i="VE[I]"),default = label_parsed)
+                         VE_s="VE[S]~or~reduced~susceptibility",
+                         VE_i="VE[I]~or~reduced~infectiousness"),default = label_parsed)
+
+#Add arrows
+arrow_df = data.frame(response=c("VE_s","VE_i"),
+                      x=c(350,350),y=c(0.7,0.45),
+                      xend=c(360,360),yend=c(0.82,0.62))
+
+#relevel
+resp_levels <- c("absolute_nAbs", "relative_nAbs", "VE_s", "VE_i")
+
+fix_resp <- function(df) {
+  if (!is.null(df) && "response" %in% names(df)) {
+    df$response <- factor(as.character(df$response), levels = resp_levels)
+  }
+  df
+}
+
+n1       <- fix_resp(n1)
+p1       <- fix_resp(p1)
+tlab3    <- fix_resp(tlab3)
+bp2      <- fix_resp(bp2)
+bp       <- fix_resp(bp)
+arrow_df <- fix_resp(arrow_df)
 
 #Figure 2
 ggplot()+
@@ -869,6 +920,7 @@ ggplot()+
   geom_point(data=bp,aes(x=Day,y=nAbs),size=3,col=c("#0066FF", "#C77CFF"))+
   geom_text(data=bp,aes(x=Day,y=nAbs+0.02*c(1,-1),label=c("BNT162b2 Boosted","mRNA-1273 Boosted")),size=5,hjust=1.1)+
   geom_errorbar(data=bp,aes(x=Day,ymin=lower, ymax=upper), width=0,col=c("#0066FF", "#C77CFF"))+
+  geom_segment(data=arrow_df,aes(x=x,y=y,xend=xend,yend=yend),linewidth=1.,color="black",arrow=arrow(length = unit(0.1,"inches"),type="closed"))+
   theme(axis.title.y = element_blank(),legend.position="top",strip.background=element_blank(),strip.placement="outside")+  
   facet_wrap(.~response,nrow=4, scales="free_y",strip.position = "left",
              labeller = mylabeller)
@@ -881,12 +933,12 @@ vacc_irr=vacc_irr0[vacc_irr0$time<300,]
 g0=gam(IRR_cases ~s(time),
        data = vacc_irr,method = "REML");summary(g0)
 
-#Plot data with model
+#Plot case risk ratio data with model
 ggplot(data = vacc_irr,
        aes(x=time, y=IRR_cases)) + geom_point()+
   geom_smooth(method="gam",formula = y ~ s(x))+
   xlab("")+
-  ylab("Ratio of COVID-19 cases in unvaccinated v. vaccinated")+
+  ylab("Risk ratio of COVID-19 cases in unvaccinated v. vaccinated")+
   theme_bw()+
   theme(text = element_text(size=16),strip.text.x = element_blank(),strip.background = element_rect(colour="white", fill="white"),
         legend.position="bottom")+
@@ -905,20 +957,24 @@ ggplot(data = vacc_irr,
 g1=gam(IRR_deaths ~s(time),
        data = vacc_irr,method = "REML");summary(g0)
 
-#Plot data with model
-ggplot(data = vacc_irr,
+#Plot death risk ratio data with model
+ggplot(data = vacc_irr[vacc_irr$time<275,],
        aes(x=time, y=IRR_deaths)) + geom_point()+
   geom_smooth(method="gam",formula = y ~ s(x))+
+  ylab("Risk ratio of COVID-19 deaths in unvaccinated v. vaccinated")+
   theme_bw()+
   theme(text = element_text(size=16),strip.text.x = element_blank(),strip.background = element_rect(colour="white", fill="white"),
         legend.position="bottom")+
   theme(panel.border = element_blank(), panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+
   theme(axis.title=element_text(size=20),axis.text=element_text(size=25),
-        legend.text=element_text(size=25),legend.title=element_blank())+
-  scale_x_continuous(expand = c(0,0), n.breaks=10)+
+        legend.text=element_text(size=25),legend.title=element_blank(),axis.title.x = element_blank())+
+  scale_x_continuous(expand = c(0,0), breaks=c(15+30*(0:8)),
+                     labels = c("Apr 21","May 21","Jun 21",
+                                "Jul 21","Aug 21","Sep 21","Oct 21",
+                                "Nov 21","Dec 21"))+
   scale_y_continuous(
-    expand = c(0, 0), limits=c(0,23))
+    expand = c(0, 0), limits=c(0,24))
 
 #Start date (first day with data) and end date (last day with data), first day vaccine given, and population, new end = end of relevant period
 start_date = '2020-01-23'; end_date = '2022-03-25';first_vax="2020-12-14";population=332858873
@@ -2576,7 +2632,7 @@ Figure3D_plot=ggplot(data=Rt_dat_sept2,aes(x=f_b,y=Rtb),)+
   labs(fill="")+#,title="D: The impact of third doses on transmission")+
   scale_color_tron()+
   scale_fill_tron()+
-  geom_text(data=pars1F_sept,aes(x=f_b,y=Rtb-0.07,label="R0 = 3.0; 79.8% vacc., no 3rd doses"),size=5,hjust=-0.05)+
+  geom_text(data=pars1F_sept,aes(x=f_b,y=Rtb-0.07,label="R0 = 3.0; 81.8% vacc., no 3rd doses"),size=5,hjust=-0.05)+
   theme(panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"),
         #strip.text.x = element_blank(),
@@ -2592,15 +2648,26 @@ Figure3D_plot=ggplot(data=Rt_dat_sept2,aes(x=f_b,y=Rtb),)+
 Figure3_df=read.csv("Figure3ABC2.csv")
 FracImmune=read.csv("FracImmune.csv")
 
+##Add Frac. Susc
+Frac_susc=FracImmune[FracImmune$Immunity=="Frac. Inf.",]
+Frac_susc$Immunity="Frac. Susc."
+Frac_susc$mean=1-FracImmune$mean[FracImmune$Immunity=="Frac. Inf."]-
+  FracImmune$mean[FracImmune$Immunity=="Frac. Vacc."]-
+  FracImmune$mean[FracImmune$Immunity=="Frac. Hybrid"]-
+  FracImmune$mean[FracImmune$Immunity=="Frac. Boost"]
+
+FracImmune=rbind(FracImmune,Frac_susc)
+FracImmune <- FracImmune %>% select(-X)
+
 #+/-SE instead of 95%
 Figure3_df$lower2=Figure3_df$mean-(Figure3_df$mean-Figure3_df$lower)/1.96
 Figure3_df$upper2=Figure3_df$mean+(Figure3_df$mean-Figure3_df$lower)/1.96
 
 FracImmune$plot="A: Vaccination and Infection History"
-FracImmune$Immunity=factor(FracImmune$Immunity,levels=c("Frac. Hybrid","Frac. Inf.","Frac. Vacc.","Frac. Boost" ))
+FracImmune$Immunity=factor(FracImmune$Immunity,levels=c("Frac. Hybrid","Frac. Inf.","Frac. Vacc.","Frac. Boost","Frac. Susc."))
 Figure3_df$date=as.Date(Figure3_df$date);FracImmune$date=as.Date(FracImmune$date)
-Figure3_df$VE[Figure3_df$VE=="Whole pop."]="Total"
-Figure3_df$VE=factor(Figure3_df$VE,levels=c("Hybrid","Prev. Inf.","Vacc.","Total" ))
+Figure3_df$VE[Figure3_df$VE=="Whole pop."]="Average"
+Figure3_df$VE=factor(Figure3_df$VE,levels=c("Hybrid","Prev. Inf.","Vacc.","Average" ))
 
 rcts2=read.csv("case_var_rect.csv");rcts2$xmin=as.Date(rcts2$xmin,format="%m/%d/%Y");rcts2$xmax=as.Date(rcts2$xmax,format="%m/%d/%Y");rcts2$date=as.Date(rcts2$date,format="%m/%d/%Y")
 rcts2=rcts2[rcts2$location=="United States",];rcts2$ymin=1.;rcts2$ymax=1.1
@@ -2613,7 +2680,7 @@ Fig3A_plot=ggplot()+
   scale_color_tron() +
   guides(color=guide_legend("Vacc. and Inf. History"))+
   scale_x_date(expand=c(0,0),date_labels="%b",date_breaks  ="1 month")+
-  scale_y_continuous(expand = c(0,0),limits=c(0,0.6),labels = scales::number_format(accuracy = 0.01))+
+  scale_y_continuous(expand = c(0,0),limits=c(0,0.72),labels = scales::number_format(accuracy = 0.01))+
   theme_few()+
   labs(y="Fraction of the population",x="")+
   geom_vline(xintercept=as.numeric(Figure3_df$date[Figure3_df$date=="2021-10-01"
@@ -2622,9 +2689,9 @@ Fig3A_plot=ggplot()+
              , linetype="dotted", colour="black")+
   geom_vline(xintercept=as.numeric(Figure3_df$date[Figure3_df$date=="2021-09-01"])
              , linetype="dotted", colour="black",linewidth=0.7)+
-  geom_rect(data=rcts2[rcts2$Variant=="Wild Type & D614G",],mapping=aes(xmin=xmin,xmax=xmax,ymin=0.54,ymax=0.6),fill="#CCCCCC",col="black")+
-  geom_rect(data=rcts2[rcts2$Variant=="Alpha",],mapping=aes(xmin=xmin,xmax=xmax,ymin=0.54,ymax=0.6),fill="#999999",col="black")+
-  geom_rect(data=rcts2[rcts2$Variant=="Delta",],mapping=aes(xmin=xmin,xmax=xmax,ymin=0.54,ymax=0.6),fill="#666666",col="black")+
+  geom_rect(data=rcts2[rcts2$Variant=="Wild Type & D614G",],mapping=aes(xmin=xmin,xmax=xmax,ymin=0.66,ymax=0.72),fill="#CCCCCC",col="black")+
+  geom_rect(data=rcts2[rcts2$Variant=="Alpha",],mapping=aes(xmin=xmin,xmax=xmax,ymin=0.66,ymax=0.72),fill="#999999",col="black")+
+  geom_rect(data=rcts2[rcts2$Variant=="Delta",],mapping=aes(xmin=xmin,xmax=xmax,ymin=0.66,ymax=0.72),fill="#666666",col="black")+
   geom_text(data=rcts2[rcts2$Variant=="Wild Type & D614G",],mapping=aes(x=as.Date("2021-02-14"),y=.573,label="WT & D614G"),size=4.5,color="white")+
   geom_text(data=rcts2[rcts2$Variant=="Alpha",],mapping=aes(x=as.Date("2021-05-15"),y=.573,label=Variant),size=4.5,color="white")+
   geom_text(data=rcts2[rcts2$Variant=="Delta",],mapping=aes(x=as.Date("2021-9-18"),y=.573,label=Variant),size=4.5,color="white")+
@@ -2645,12 +2712,14 @@ Fig3BC_plot=ggplot()+
   
   geom_ribbon(data=Figure3_df[Figure3_df$VE!="Frac. Inf."&Figure3_df$VE!="Frac. Vacc."&Figure3_df$VE!="Frac. Boost",]
               ,aes(x=date,ymin=lower2,ymax=upper2,fill=VE),alpha=0.5)+
-  scale_fill_tron() +
-  scale_color_tron() +
+  #scale_fill_tron() +
+  #scale_color_tron() +
+  scale_fill_manual(values=c("#FF410DFF","#6EE2FFFF","#F7C530FF","purple"))+
+  scale_color_manual(values=c("#FF410DFF","#6EE2FFFF","#F7C530FF","purple"))+
   scale_x_date(expand=c(0,0),date_labels="%b",date_breaks  ="1 month")+
   scale_y_continuous(expand = c(0,0),limits = c(0,1.1))+
   theme_few()+
-  labs(y="Vaccine effectiveness",x="")+
+  labs(y="Vaccine Effectiveness or reduction due to immunity",x="")+
   # geom_vline(xintercept=as.numeric(Figure3_df$date[Figure3_df$date=="2021-04-02"
   #                                                  |Figure3_df$date=="2021-06-18"])
   #            , linetype="solid", colour="black")+
@@ -2680,8 +2749,8 @@ Fig3BC_plot=ggplot()+
 
 ggdraw(xlim=c(0,0.65),ylim=c(0,1.6)) +
   draw_plot(Fig3A_plot, x = 0, y = 1.09, width = 0.627, height = 0.4) +
-  draw_plot(Fig3BC_plot, x = 0, y = .4, width = 0.593, height = 0.7) +
-  draw_plot(Figure3D_plot, x = 0, y = 0, width = 0.532, height = 0.4) 
+  draw_plot(Fig3BC_plot, x = 0, y = .4, width = 0.588, height = 0.7) +
+  draw_plot(Figure3D_plot, x = 0, y = 0, width = 0.515, height = 0.4) #1200 x 1200
 
 #Supplemental Plot - Modify data for legend/facets
 pars1A_dec$Scenario2=pars1A_nov$Scenario2=pars1A_oct$Scenario2=pars1A_sept$Scenario2="US/D"
@@ -3203,6 +3272,8 @@ ggplot(Rt_death2)+
 
 ##Deaths averted direct effects
 ##VEs for death
+cvalues_death=cvalues[cvalues$endpoint=="Death",]
+
 VE_death_boost_mean=mRNA_pfizer_ratio*(1-(1/(1+exp(-(cvalues_death$c0+cvalues_death$c1*log2(NATR_pfizer_recent_three*NATR_var_Delta))))))+
   mRNA_moderna_ratio*(1-(1/(1+exp(-(cvalues_death$c0+cvalues_death$c1*log2(NATR_moderna_recent_three*NATR_var_Delta))))))
 VE_death_boost_pfi_mean=(1-(1/(1+exp(-(cvalues_death$c0+cvalues_death$c1*log2(NATR_pfizer_recent_three*NATR_var_Delta))))))
@@ -3473,5 +3544,113 @@ deaths_averted_direct$unvaxdeath_vaxxed_lower[deaths_averted_direct$month=="Dec"
 deaths_averted_direct$unvaxdeath_vaxxed[deaths_averted_direct$month=="Dec"]=sum(direct_deaths_dec$unvaxdeath)-sum(direct_deaths_dec$unvaxdeath_vaxxed)
 deaths_averted_direct$unvaxdeath_vaxxed_upper[deaths_averted_direct$month=="Dec"]=sum(direct_deaths_dec$unvaxdeath)-sum(direct_deaths_dec$unvaxdeath_vaxxed_upper)
 
+
+sh1=2.1;sc1=13.7/sh1
+nd=1000000 #1M draws
+inftodeathV = rweibull(nd,shape=5.983,scale=1.455)+ #delay infection to shedding
+  rweibull(nd,shape=0.294,scale= 0.14)+ #shedding to symptom onset
+  rgamma(nd,shape=5.078,scale=0.765)+ #symptom onset to hospitalization
+  rgamma(nd,shape=sh1,scale=sc1) #fitted distribution hospitalization to death
+#count reconvolution deaths by day after rounding day of death
+inftodeathH=hist(round(inftodeathV),xlim=c(0,60),xlab="Days",ylab="Probability",main="Time to death",probability=T,type='l',breaks=c(0:100-.5,max(inftodeathV)+.5) )
+inftodeathDist=inftodeathH$counts/nd #turn into probability vector length = 100 days
+
+
+#Figure 1 R2 values-----
+m=read.csv("df_Figure1.csv")
+
+ggplot()+theme_few()+ #quick replica of Fig 1 to make sure things aren't way off
+  geom_pointrange(data=m[m$data=="data",],aes(x=NATR_tot_jit,y=VE,ymin=lower,ymax=upper,
+                                              color=Variant,shape=Vaccine))+
+  facet_wrap(~endpoint,nrow=4,scales="free_y")+
+  geom_line(data=m[m$data=="mean",],aes(x=NATR_tot,y=mean))+
+  scale_x_continuous(trans="sqrt",lim=c(0.125,4),breaks=0.125*2^(0:5))+
+  geom_ribbon(data=m[m$data=="CI",],aes(x=NATR_tot,ymin=lower,ymax=upper),color="gray",alpha=0.1)
+
+#Function for predicting values using the fitted coefs
+VEeqF= function(c0,c1,NATRtot) {1 - 1/(1+exp(-(c0+c1*log2(NATRtot))))}
+#Fitted coefs from Table S1
+coefs=data.frame(Coef=rep(c("c0","c1"),3),Endpoint=rep(c("Susc","Infect","Death"),each=2),
+                 value=c(-1.066698,-0.410926,0.174254,-0.506766,-3.277454,-0.282577))
+
+
+#Add predicted values using VEeqF function for each empirical VE estimate to calculate residuals
+m$pred=NA
+m$pred[m$data=="data"&m$endpoint=="Susceptibility"]=
+  VEeqF(c0=coefs$value[coefs$Coef=="c0"&coefs$Endpoint=="Susc"],
+        c1=coefs$value[coefs$Coef=="c1"&coefs$Endpoint=="Susc"],
+        NATRtot=m$NATR_tot[m$data=="data"&m$endpoint=="Susceptibility"])
+m$pred[m$data=="data"&m$endpoint=="Infectiousness"]=
+  VEeqF(c0=coefs$value[coefs$Coef=="c0"&coefs$Endpoint=="Infect"],
+        c1=coefs$value[coefs$Coef=="c1"&coefs$Endpoint=="Infect"],
+        NATRtot=m$NATR_tot[m$data=="data"&m$endpoint=="Infectiousness"])
+m$pred[m$data=="data"&m$endpoint=="Death"]=
+  VEeqF(c0=coefs$value[coefs$Coef=="c0"&coefs$Endpoint=="Death"],
+        c1=coefs$value[coefs$Coef=="c1"&coefs$Endpoint=="Death"],
+        NATRtot=m$NATR_tot[m$data=="data"&m$endpoint=="Death"])
+
+#-------------R2 Susceptibility -----
+SS_tot_susc_unweight = sum( (m$VE[m$data=="data"&m$endpoint=="Susceptibility"]- 
+                               mean(m$VE[m$data=="data"&m$endpoint=="Susceptibility"]))^2) #deviation squared
+SS_resid_susc_unweight = sum((m$VE[m$data=="data"&m$endpoint=="Susceptibility"]-
+                                m$pred[m$data=="data"&m$endpoint=="Susceptibility"])^2)
+
+m$InvVarEst=1/((m$upper-m$lower)/4)  #inverse variance estimate
+m=m %>% group_by(data,endpoint) %>% mutate(ScaledInvVarEst = InvVarEst/sum(InvVarEst)) #scale to sum to 1
+
+# m %>% group_by(data,endpoint) %>% summarize(sum(ScaledInvVarEst)) #they sum to 1!
+
+SS_tot_susc_weight = sum(m$ScaledInvVarEst[m$data=="data"&m$endpoint=="Susceptibility"]* #inverse variance weight
+                           (m$VE[m$data=="data"&m$endpoint=="Susceptibility"]- 
+                              sum(m$VE[m$data=="data"&m$endpoint=="Susceptibility"]* #weighted mean
+                                    m$ScaledInvVarEst[m$data=="data"&m$endpoint=="Susceptibility"] ) )^2 ) #weighted deviation from weighted mean squared
+
+SS_resid_susc_weight = sum( m$ScaledInvVarEst[m$data=="data"&m$endpoint=="Susceptibility"]* #scaled inverse variance weight
+                              (m$VE[m$data=="data"&m$endpoint=="Susceptibility"]-
+                                 m$pred[m$data=="data"&m$endpoint=="Susceptibility"])^2 ) #deviation squared
+
+#data.frame(m[m$data=="data"&m$endpoint=="Susceptibility",c("Vaccine","Variant","VE","lower","upper","ScaledInvVarEst")])
+
+R2_susc_unweight = 1 - SS_resid_susc_unweight/SS_tot_susc_unweight;R2_susc_unweight
+R2_susc_weight = 1 - SS_resid_susc_weight/SS_tot_susc_weight;R2_susc_weight
+
+
+#-------------R2 Infectiousness-----
+SS_tot_infect_unweight = sum( (m$VE[m$data=="data"&m$endpoint=="Infectiousness"]- 
+                                 mean(m$VE[m$data=="data"&m$endpoint=="Infectiousness"]))^2) #deviation squared
+
+SS_resid_infect_unweight = sum((m$VE[m$data=="data"&m$endpoint=="Infectiousness"]-
+                                  m$pred[m$data=="data"&m$endpoint=="Infectiousness"])^2)
+
+SS_tot_infect_weight = sum(m$ScaledInvVarEst[m$data=="data"&m$endpoint=="Infectiousness"]* #inverse variance weight
+                             (m$VE[m$data=="data"&m$endpoint=="Infectiousness"]- 
+                                sum(m$VE[m$data=="data"&m$endpoint=="Infectiousness"]* #weighted mean
+                                      m$ScaledInvVarEst[m$data=="data"&m$endpoint=="Infectiousness"] ) )^2 ) #weighted deviation from weighted mean squared
+
+SS_resid_infect_weight = sum( m$ScaledInvVarEst[m$data=="data"&m$endpoint=="Infectiousness"]* #scaled inverse variance weight
+                                (m$VE[m$data=="data"&m$endpoint=="Infectiousness"]-
+                                   m$pred[m$data=="data"&m$endpoint=="Infectiousness"])^2 ) #deviation squared
+
+R2_infect_unweight = 1 - SS_resid_infect_unweight/SS_tot_infect_unweight;R2_infect_unweight
+R2_infect_weight = 1 - SS_resid_infect_weight/SS_tot_infect_weight;R2_infect_weight
+
+#--------- Death-----
+SS_tot_death_unweight = sum( (m$VE[m$data=="data"&m$endpoint=="Death"]- 
+                                mean(m$VE[m$data=="data"&m$endpoint=="Death"]))^2) #deviation squared
+
+SS_resid_death_unweight = sum((m$VE[m$data=="data"&m$endpoint=="Death"]-
+                                 m$pred[m$data=="data"&m$endpoint=="Death"])^2)
+
+SS_tot_death_weight = sum(m$ScaledInvVarEst[m$data=="data"&m$endpoint=="Death"]* #inverse variance weight
+                            (m$VE[m$data=="data"&m$endpoint=="Death"]- 
+                               sum(m$VE[m$data=="data"&m$endpoint=="Death"]* #weighted mean
+                                     m$ScaledInvVarEst[m$data=="data"&m$endpoint=="Death"] ) )^2 ) #weighted deviation from weighted mean squared
+
+SS_resid_death_weight = sum( m$ScaledInvVarEst[m$data=="data"&m$endpoint=="Death"]* #scaled inverse variance weight
+                               (m$VE[m$data=="data"&m$endpoint=="Death"]-
+                                  m$pred[m$data=="data"&m$endpoint=="Death"])^2 ) #deviation squared
+
+R2_death_unweight = 1 - SS_resid_death_unweight/SS_tot_death_unweight;R2_death_unweight
+R2_death_weight = 1 - SS_resid_death_weight/SS_tot_death_weight;R2_death_weight
 
 
