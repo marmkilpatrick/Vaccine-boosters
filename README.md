@@ -13,4 +13,4 @@ Third vaccine doses could have indirectly averted >100,000 deaths in the USA by 
 5th version of code uploaded 2/20/25
 6th version of code uploaded 3/30/26
 7th version of code uploaded 11/16/26
-Contact Marm Kilpatrick, akilpatr@ucsc.edu with any questions.
+Contact Marm Kilpatrick, akilpatr@ucsc.edu, or Billy Gardner, wjgytc14@gmail.com, with any questions.
